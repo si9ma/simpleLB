@@ -11,6 +11,11 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/acme/autocert"
 	"log"
+	"math/rand"
+	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strconv"
 )
@@ -32,6 +37,7 @@ var lbCmd = &cobra.Command{
 	Long:  "start a load balancer",
 	Run: func(cmd *cobra.Command, args []string) {
 		checkConfig()
+		startServer()
 	},
 }
 
@@ -53,6 +59,8 @@ func checkConfig() {
 func startServer() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
+	// forward all request to loadBalancer
+	r.NoRoute(loadBalancer)
 
 	var err error
 	if autoTLS {
@@ -73,8 +81,36 @@ func startServer() {
 	}
 }
 
+func loadBalancer(c *gin.Context) {
+	// if there's a port inside the host, parse pure host
+	reqHost, _, err := net.SplitHostPort(c.Request.Host)
+	if err != nil {
+		reqHost = c.Request.Host
+	}
+	machineList, ok := lbConfig.LB[reqHost]
+	if !ok || len(machineList.GetAvailableMachine()) <= 0 {
+		log.Printf("can't find any downstream for %s\n", reqHost)
+		c.AbortWithStatus(http.StatusServiceUnavailable)
+		return
+	}
+	// get a random machine
+	availableMachineList := machineList.GetAvailableMachine()
+	randN := rand.Intn(len(availableMachineList))
+	machine := availableMachineList[randN]
+	hostUrl, err := url.Parse("http://" + machine.Host)
+	if err != nil {
+		log.Printf("parse host:%s failed:%s\n", machine.Host, err.Error())
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	// forward request to the downstream
+	proxy := httputil.NewSingleHostReverseProxy(hostUrl)
+	proxy.ServeHTTP(c.Writer, c.Request)
+}
+
 // get domains from lbConfig
-func getDomains(strMap map[string][]config.HostConfig) []string {
+func getDomains(strMap map[string]config.MachineList) []string {
 	keys := make([]string, len(strMap))
 
 	i := 0

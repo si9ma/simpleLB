@@ -13,8 +13,11 @@ import (
 	"github.com/spf13/viper"
 )
 
-var cfgFile string
-var lbConfig config.LBConfig
+var (
+	lbConfig config.LBConfig
+	cfgFile  string
+	viperVar *viper.Viper
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "simpleLB",
@@ -38,9 +41,11 @@ func init() {
 
 // initConfig reads in config file and ENV variables if set.
 func initConfig() {
+	// the keys may contain dot (the default key delimiter), change the delimiter)
+	viperVar = viper.NewWithOptions(viper.KeyDelimiter("::"))
 	if cfgFile != "" {
 		// Use config file from the flag.
-		viper.SetConfigFile(cfgFile)
+		viperVar.SetConfigFile(cfgFile)
 	} else {
 		// Find home directory.
 		home, err := homedir.Dir()
@@ -50,19 +55,19 @@ func initConfig() {
 		}
 
 		// Search config in home directory with name ".simpleLB" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigName(".simpleLB")
+		viperVar.AddConfigPath(home)
+		viperVar.SetConfigName(".simpleLB")
 	}
 
-	viper.AutomaticEnv() // read in environment variables that match
+	viperVar.AutomaticEnv() // read in environment variables that match
 
 	// If a config file is found, read it in.
-	if err := viper.ReadInConfig(); err == nil {
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
+	if err := viperVar.ReadInConfig(); err == nil {
+		fmt.Println("Using config file:", viperVar.ConfigFileUsed())
 	}
 
 	// Unmarshal to struct
-	if err := viper.Unmarshal(&lbConfig); err != nil {
+	if err := viperVar.Unmarshal(&lbConfig); err != nil {
 		fmt.Fprintf(os.Stderr, "parse config failed:%s", err.Error())
 		os.Exit(1)
 	}
